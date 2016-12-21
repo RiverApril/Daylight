@@ -619,11 +619,11 @@ int main(int argc, const char * argv[]) {
             rect.h = SCREEN_HEIGHT/2;
             rect.x = 0;
             rect.y = 0;
-            SDL_SetRenderDrawColor(renderer, 0x40, 0x40, 0x40, 0xFF);
+            SDL_SetRenderDrawColor(renderer, 0x55, 0xC0, 0xFF, 0xFF);
             SDL_RenderFillRect(renderer, &rect);
             
             rect.y = SCREEN_HEIGHT/2;
-            SDL_SetRenderDrawColor(renderer, 0x60, 0x60, 0x60, 0xFF);
+            SDL_SetRenderDrawColor(renderer, 0x40, 0x40, 0x40, 0xFF);
             SDL_RenderFillRect(renderer, &rect);
         }
         
