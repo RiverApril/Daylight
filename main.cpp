@@ -33,11 +33,14 @@ using namespace std;
 #define ASPECT_RATIO (VIEW_WIDTH/VIEW_HEIGHT)
 #define FOV (TAU/6)
 
-#define HUD_HEIGHT 120
 #define SCREEN_WIDTH VIEW_WIDTH
-#define SCREEN_HEIGHT (VIEW_HEIGHT+HUD_HEIGHT)
+#define SCREEN_HEIGHT VIEW_HEIGHT
 
 #define FAR 100
+
+#define FOG_START 10
+#define FOG_END 30
+#define FOG_MULT (1.0/(FOG_END-FOG_START))
 
 
 #define INP_MOVE_LEFT 0
@@ -49,8 +52,8 @@ using namespace std;
 
 #define PLAYER_SIZE (0.1)
 
-#define LEVEL_WIDTH 32
-#define LEVEL_HEIGHT 32
+#define LEVEL_WIDTH 256
+#define LEVEL_HEIGHT 256
 
 #define TILE_EMPTY 0
 #define TILE_BRICK 1
@@ -63,10 +66,9 @@ using namespace std;
 #define TEXTURE_WIDTH 16
 #define TEXTURE_HEIGHT 16
 
-#define HUD_COLOR 0x202020
 #define CLEAR_COLOR 0xFFFFFF
-#define CEIL_COLOR 0x55C0FF
-#define FLOOR_COLOR 0x404040
+#define CEIL_COLOR 0x000000
+#define FLOOR_COLOR 0x041308
 
 
 float posX, posY;
@@ -83,9 +85,7 @@ int averageFps = 0;
 float sumFps = 0;
 int countFps = 0;
 
-#define ENTITY_TYPE_TEST1 0
-#define ENTITY_TYPE_TEST2 1
-#define ENTITY_TYPE_COUNT 2
+int pageCount = 0;
 
 struct Entity{
     Entity(){}
@@ -97,7 +97,18 @@ struct Entity{
     float dist;
 };
 
-vector<Entity> entityList;
+Entity* slender;
+float slenderWaitTimer = 5;
+float slenderStareTimer = 0;
+
+float staticIntensity = 0;
+
+#define ENTITY_TYPE_PAGE 0
+#define ENTITY_TYPE_SLENDER 1
+#define ENTITY_TYPE_TREE 2
+#define ENTITY_TYPE_COUNT 3
+
+vector<Entity*> entityList;
 
 
 unsigned char level[LEVEL_WIDTH][LEVEL_HEIGHT];
@@ -115,8 +126,8 @@ void setRenderDrawColorRGB(SDL_Renderer* renderer, unsigned int color){
     SDL_SetRenderDrawColor(renderer, (color >> 16) & 0xFF, (color >> 8) & 0xFF, (color) & 0xFF, 0xFF);
 }
 
-void setRenderDrawColorRGB(SDL_Renderer* renderer, unsigned int color, unsigned int shift){
-    SDL_SetRenderDrawColor(renderer, ((color >> 16) & 0xFF) >> shift, ((color >> 8) & 0xFF) >> shift, ((color) & 0xFF) >> shift, 0xFF);
+void setRenderDrawColorRGB(SDL_Renderer* renderer, unsigned int color, float multi){
+    SDL_SetRenderDrawColor(renderer, Uint8(((color >> 16) & 0xFF) * multi), Uint8(((color >> 8) & 0xFF) * multi), Uint8(((color) & 0xFF) * multi), 0xFF);
 }
 
 void setRenderDrawColorARGB(SDL_Renderer* renderer, unsigned int color){
@@ -125,15 +136,27 @@ void setRenderDrawColorARGB(SDL_Renderer* renderer, unsigned int color){
 
 png_bytep* loadPng(const char* path, int& width, int& height){
     FILE* file = fopen(path, "rb");
-    if(!file) return nullptr;
+    if(!file){
+        printf("Failed to open file: %s\n", path);
+        return nullptr;
+    }
     
     png_structp png = png_create_read_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
-    if(!png) return nullptr;
+    if(!png){
+        printf("Failed to read as png: %s\n", path);
+        return nullptr;
+    }
     
     png_infop info = png_create_info_struct(png);
-    if(!info) return nullptr;
+    if(!info){
+        printf("Failed to read png info: %s\n", path);
+        return nullptr;
+    }
     
-    if(setjmp(png_jmpbuf(png))) abort();
+    if(setjmp(png_jmpbuf(png))){
+        printf("Failed to read png: %s\n", path);
+        return nullptr;
+    }
     
     png_init_io(png, file);
     
@@ -247,10 +270,10 @@ void loadPngAsLevel(const char* path){
                     level[x][y-2] = tileKey[c];
                 }else if(entityKey.find(c) != entityKey.end()){
                     if(entityKey[c] == 0){
-                        posX = x;
-                        posY = y;
+                        posX = x+.5;
+                        posY = y+.5;
                     }else{
-                        entityList.push_back(Entity(x, y-2, entityKey[c]-1));
+                        entityList.push_back(new Entity(x+.5, y-2+.5, entityKey[c]-1));
                         level[x][y-2] = 0;
                     }
                 }
@@ -345,12 +368,12 @@ bool simpleLineHit(float originX, float originY, float aX, float aY, float len){
     return false;
 }
 
-void bubbleSortByDist(vector<Entity>& list) {
-    Entity temp;
+void bubbleSortByDist(vector<Entity*>& list) {
+    Entity* temp;
     int size = (int)list.size();
     for(int i=0; i<size; i++) {
         for(int j=size-1; j>i; j--) {
-            if(list[j].dist>list[j-1].dist) {
+            if(list[j]->dist>list[j-1]->dist) {
                 temp=list[j-1];
                 list[j-1]=list[j];
                 list[j]=temp;
@@ -359,10 +382,18 @@ void bubbleSortByDist(vector<Entity>& list) {
     }
 }
 
+void teleSlender(){
+    do{
+        slender->x = ((rand()%(FOG_END*2*10))/10.0)-FOG_END+posX;
+        slender->y = ((rand()%(FOG_END*2*10))/10.0)-FOG_END+posY;
+    }while(solid(slender->x, slender->y));
+}
+
 void draw(SDL_Renderer *renderer){
     
     float moveSpeed = frameTime * 5.0f; // coords per second
-    float rotSpeed = frameTime * 3.0f; // radians per second
+    float strafeSpeed = frameTime * 3.0f; // coords per second
+    float rotSpeed = frameTime * 2.0f; // radians per second
     float mouseRotSpeed = frameTime * 6.0f;
     
     float otherMoveSpeed = frameTime * 2.0f;
@@ -390,16 +421,16 @@ void draw(SDL_Renderer *renderer){
         tryY += lookY*moveSpeed;
     }
     if(inputs[INP_MOVE_BACKWARD]){
-        tryX -= lookX*moveSpeed;
-        tryY -= lookY*moveSpeed;
+        tryX -= lookX*strafeSpeed;
+        tryY -= lookY*strafeSpeed;
     }
     if(inputs[INP_MOVE_LEFT]){
-        tryX += lookY*moveSpeed;
-        tryY -= lookX*moveSpeed;
+        tryX += lookY*strafeSpeed;
+        tryY -= lookX*strafeSpeed;
     }
     if(inputs[INP_MOVE_RIGHT]){
-        tryX -= lookY*moveSpeed;
-        tryY += lookX*moveSpeed;
+        tryX -= lookY*strafeSpeed;
+        tryY += lookX*strafeSpeed;
     }
     
     if(DRAW_2D){
@@ -463,41 +494,35 @@ void draw(SDL_Renderer *renderer){
     posX = tryX;
     posY = tryY;
     
-    for(Entity& e : entityList){
+    for(Entity* e : entityList){
         if(DRAW_2D){
-            unsigned int color = entityTextures[e.type][0][0];
+            unsigned int color = entityTextures[e->type][0][0];
             SDL_Rect rect;
-            rect.x = e.x * TILE_SIZE_2D;
-            rect.y = e.y * TILE_SIZE_2D;
+            rect.x = e->x * TILE_SIZE_2D;
+            rect.y = e->y * TILE_SIZE_2D;
             rect.w = TILE_SIZE_2D;
             rect.h = TILE_SIZE_2D;
             setRenderDrawColorRGB(renderer, color);
             SDL_RenderDrawRect(renderer, &rect);
         }
         
-        switch (e.type) {
-            case ENTITY_TYPE_TEST2:{
-                float len = sqrtf((e.x-posX)*(e.x-posX)+(e.y-posY)*(e.y-posY));
-                if(len > 1){
-                    float aX = (posX-e.x) / len;
-                    float aY = (posY-e.y) / len;
-                    if(!simpleLineHit(e.x, e.y, aX, aY, len)){
-                        e.x += aX * otherMoveSpeed;
-                        e.y += aY * otherMoveSpeed;
-                    }
-                    if(DRAW_2D){
-                        unsigned int color = entityTextures[e.type][0][0];
-                        setRenderDrawColorRGB(renderer, color);
-                        SDL_RenderDrawLine(renderer, e.x * TILE_SIZE_2D, e.y * TILE_SIZE_2D, (e.x+aX*len) * TILE_SIZE_2D, (e.y+aY*len) * TILE_SIZE_2D);
-                    }
+        switch (e->type) {
+            case ENTITY_TYPE_PAGE:{
+                float len = sqrtf((e->x-posX)*(e->x-posX)+(e->y-posY)*(e->y-posY));
+                if(len < 1){
+                    e->x = -10;
+                    e->y = -10;
+                    pageCount++;
                 }
                 break;
             }
         }
         
-        e.dist = sqrtf((posX-e.x)*(posX-e.x)+(posY-e.y)*(posY-e.y));
+        e->dist = sqrtf((posX-e->x)*(posX-e->x)+(posY-e->y)*(posY-e->y));
     }
     bubbleSortByDist(entityList);
+    
+    bool seeSlender = false;
     
     for(int x=0;x<VIEW_WIDTH;x++){
         float angle = (x-VIEW_WIDTH/2)*(FOV/VIEW_WIDTH);
@@ -567,7 +592,7 @@ void draw(SDL_Renderer *renderer){
             tiles++;
         }
         
-        if(dist >= 0){
+        if(dist >= 0 && dist < FOG_END){
             if(DRAW_2D){
                 unsigned int color = tileTextures[safeTile(hitX, hitY)-1][0][0];
                 setRenderDrawColorRGB(renderer, color, sideNS);
@@ -588,7 +613,14 @@ void draw(SDL_Renderer *renderer){
                     int yE = yStart + (int)((texY+1)*(h/(float)TEXTURE_HEIGHT));
                     if(yE >= 0 && yS < VIEW_HEIGHT){
                         unsigned int color = tileTextures[safeTile(hitX, hitY)-1][texX][texY];
-                        setRenderDrawColorRGB(renderer, color, sideNS);
+                        float multi = sideNS?.75f:1;
+                        if(dist > FOG_START){
+                            multi -= (dist-FOG_START) * FOG_MULT;
+                            if(multi < 0){
+                                multi = 0;
+                            }
+                        }
+                        setRenderDrawColorRGB(renderer, color, multi);
                         SDL_RenderDrawLine(renderer, x, yS, x, yE);
                     }
                 }
@@ -596,10 +628,10 @@ void draw(SDL_Renderer *renderer){
         }
         
         if(DRAW_3D){
-            for(Entity& e : entityList){
-                if(e.dist < dist || dist<0){
-                    float eAngleSize = atan(1/e.dist);
-                    float eAngle = atan2(e.y-posY, e.x-posX);
+            for(Entity* e : entityList){
+                if((e->dist < dist || dist<0) && e->dist < FOG_END){
+                    float eAngleSize = atan(1/e->dist);
+                    float eAngle = atan2(e->y-posY, e->x-posX);
                     float yangle = atan2(sin(yawLook+angle), cos(yawLook+angle));
                     float ac = (yangle - eAngle);
                     while(ac < -PI){
@@ -610,7 +642,7 @@ void draw(SDL_Renderer *renderer){
                     }
                     float w = ac / eAngleSize;
                     if(abs(w) <= .5){
-                        float h = (VIEW_HEIGHT*ASPECT_RATIO)/e.dist;
+                        float h = (VIEW_HEIGHT*ASPECT_RATIO)/e->dist;
                         int yStart = VIEW_HEIGHT/2-h/2;
                         
                         int texX = (int)((w+.5) * TEXTURE_WIDTH);
@@ -618,9 +650,19 @@ void draw(SDL_Renderer *renderer){
                             int yS = yStart + (int)(texY*(h/(float)TEXTURE_HEIGHT));
                             int yE = yStart + (int)((texY+1)*(h/(float)TEXTURE_HEIGHT));
                             if(yE >= 0 && yS < VIEW_HEIGHT){
-                                unsigned int color = entityTextures[e.type][texX][texY];
+                                unsigned int color = entityTextures[e->type][texX][texY];
                                 if(color >> 24){
-                                    setRenderDrawColorRGB(renderer, color);
+                                    float multi = 1;
+                                    if(e->dist > FOG_START && e->type != ENTITY_TYPE_SLENDER){
+                                        multi -= (e->dist-FOG_START) * FOG_MULT;
+                                        if(multi < 0){
+                                            multi = 0;
+                                        }
+                                    }
+                                    if(e->type == ENTITY_TYPE_SLENDER){
+                                        seeSlender = true;
+                                    }
+                                    setRenderDrawColorRGB(renderer, color, multi);
                                     SDL_RenderDrawLine(renderer, x, yS, x, yE);
                                 }
                             }
@@ -632,16 +674,65 @@ void draw(SDL_Renderer *renderer){
         
     }
     
-    SDL_Rect rect;
-    rect.w = SCREEN_WIDTH;
-    rect.h = HUD_HEIGHT;
-    rect.x = 0;
-    rect.y = VIEW_HEIGHT;
-    setRenderDrawColorRGB(renderer, HUD_COLOR);
-    SDL_RenderFillRect(renderer, &rect);
+    setRenderDrawColorRGB(renderer, 0xFFFFFF);
+    for(int i=0;i<staticIntensity-1;i++){
+        int y = rand()%SCREEN_HEIGHT;
+        int x = rand()%SCREEN_WIDTH;
+        int w = (rand()%SCREEN_WIDTH/4)+(SCREEN_WIDTH/4);
+        SDL_RenderDrawLine(renderer, x-w, y, x+w, y);
+    }
+    
+    if(seeSlender){
+        staticIntensity *= 0.9;
+        if(slenderStareTimer > 0){
+            slenderStareTimer -= frameTime;
+        }else if(slenderWaitTimer == 0){
+            slenderStareTimer = 0;
+            slenderWaitTimer = (32-(pageCount*4));
+        }
+    }
+    
+    if(staticIntensity < 0){
+        staticIntensity = 0;
+    }
+    
+    if(slenderWaitTimer > 0){
+        slenderWaitTimer -= frameTime;
+        slender->x = -10;
+        slender->y = -10;
+        staticIntensity *= 0.9;
+    }else{
+        if(slenderStareTimer == 0){
+            slenderWaitTimer = 0;
+            slenderStareTimer = (rand()%10)+2;
+            teleSlender();
+        }
+        float len = sqrtf((slender->x-posX)*(slender->x-posX)+(slender->y-posY)*(slender->y-posY));
+        if(slenderStareTimer <= 0 || slenderWaitTimer <= 0){
+            if(len > FOG_END){
+                teleSlender();
+            }else{
+                float aX = (posX-slender->x) / len;
+                float aY = (posY-slender->y) / len;
+                if(simpleLineHit(slender->x, slender->y, aX, aY, len)){
+                    teleSlender();
+                }else{
+                    staticIntensity += frameTime * (FOG_END-len);
+                    slenderWaitTimer = 0;
+                }
+            }
+        }
+    }
+    
+    
+    
     
     setRenderDrawColorRGB(renderer, 0xFFFFFF);
-    drawString(renderer, 2, VIEW_HEIGHT+2, ("FPS: "+std::to_string(averageFps)).c_str());
+    drawString(renderer, 2, VIEW_HEIGHT-FONT_CHAR_HEIGHT-2, ("FPS: "+std::to_string(averageFps)).c_str());
+    drawString(renderer, 2, 2, ("PAGES: "+std::to_string(pageCount)).c_str());
+    drawString(renderer, 2, (2+FONT_CHAR_HEIGHT)+2, ("WAIT TIMER : "+std::to_string(slenderWaitTimer)).c_str());
+    drawString(renderer, 2, (2+FONT_CHAR_HEIGHT)*2+2, ("STARE TIMER: "+std::to_string(slenderStareTimer)).c_str());
+    
     
     
 }
@@ -654,17 +745,18 @@ void init(){
     loadPngAsTexture(tileTextures[TILE_GREEN_BRICK-1], "green brick.png");
     
     
-    loadPngAsTexture(entityTextures[ENTITY_TYPE_TEST1], "test.png");
-    loadPngAsTexture(entityTextures[ENTITY_TYPE_TEST2], "test2.png");
+    loadPngAsTexture(entityTextures[ENTITY_TYPE_PAGE], "page.png");
+    loadPngAsTexture(entityTextures[ENTITY_TYPE_SLENDER], "slender.png");
+    loadPngAsTexture(entityTextures[ENTITY_TYPE_TREE], "tree.png");
     
     loadPngAsFont("font.png");
     
     
     loadPngAsLevel("level.png");
     
+    slender = new Entity(-10, -10, ENTITY_TYPE_SLENDER);
+    entityList.push_back(slender);
     
-    posX = (LEVEL_WIDTH) / 2;
-    posY = (LEVEL_HEIGHT) / 2;
     yawLook = 0;
     
     oldTicks = SDL_GetTicks();
