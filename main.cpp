@@ -10,6 +10,7 @@
 #include <cmath>
 #include <ctime>
 #include <vector>
+#include <map>
 #include <string>
 #include <SDL2/SDL.h>
 
@@ -99,40 +100,7 @@ struct Entity{
 vector<Entity> entityList;
 
 
-unsigned char level[LEVEL_WIDTH][LEVEL_HEIGHT] = {
-    {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1},
-    {1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
-    {1,0,2,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
-    {1,0,2,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
-    {1,0,2,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4,4,4,4,4,0,0,0,0,0,0,0,1},
-    {1,0,2,0,2,0,0,0,0,0,0,0,0,0,0,4,4,4,4,0,0,0,0,0,0,0,0,0,0,0,0,1},
-    {1,0,2,0,2,0,0,0,0,0,0,4,4,4,4,0,0,0,0,0,0,0,0,4,0,0,0,0,0,0,0,1},
-    {1,0,2,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4,0,0,0,0,0,0,0,1},
-    {1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4,0,0,0,0,0,0,0,1},
-    {1,0,0,0,0,0,0,0,0,0,0,4,4,4,4,0,0,0,0,0,0,0,0,4,0,0,0,0,0,0,0,1},
-    {1,0,3,0,3,0,0,0,0,0,0,0,0,0,0,4,4,4,4,0,0,0,0,0,0,0,0,0,0,0,0,1},
-    {1,0,3,0,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4,4,4,4,4,0,0,0,0,0,0,0,1},
-    {1,0,3,0,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
-    {1,0,3,0,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
-    {1,0,3,0,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
-    {1,0,3,0,3,3,3,3,3,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
-    {1,0,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
-    {1,0,3,3,3,3,3,3,3,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
-    {1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
-    {1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,1},
-    {1,0,0,0,0,0,0,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,1},
-    {1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
-    {1,0,0,0,0,0,0,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
-    {1,0,3,0,3,0,3,3,3,0,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
-    {1,0,0,0,0,0,0,3,0,0,0,0,0,0,0,0,0,0,0,2,0,0,0,0,0,0,0,0,2,0,0,1},
-    {1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2,2,0,0,0,0,2,2,0,0,0,1},
-    {1,0,0,0,0,0,0,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2,2,2,2,0,0,0,0,0,1},
-    {1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
-    {1,0,0,0,0,0,0,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
-    {1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
-    {1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
-    {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1}
-};
+unsigned char level[LEVEL_WIDTH][LEVEL_HEIGHT];
 
 unsigned int tileTextures[TILE_COUNT-1][TEXTURE_WIDTH][TEXTURE_HEIGHT];
 unsigned int entityTextures[ENTITY_TYPE_COUNT][TEXTURE_WIDTH][TEXTURE_HEIGHT];
@@ -249,6 +217,48 @@ void loadPngAsFont(const char* path){
     }
 }
 
+void loadPngAsLevel(const char* path){
+    int width, height;
+    png_bytep* rowPointers = loadPng(path, width, height);
+    
+    if(rowPointers && height>=2){
+        png_bytep tileKeyRow = rowPointers[0];
+        map<unsigned int, unsigned char> tileKey;
+        
+        png_bytep entityKeyRow = rowPointers[1];
+        map<unsigned int, int> entityKey;
+        
+        for(int x = width-1; x >= 0; x--) {
+            png_bytep px = &(tileKeyRow[x * 4]);
+            tileKey[(px[0]<<16) | (px[1]<<8) | (px[2]) | (px[3]<<24)] = x;
+        }
+        
+        for(int x = width-1; x >= 0; x--) {
+            png_bytep px = &(entityKeyRow[x * 4]);
+            entityKey[(px[0]<<16) | (px[1]<<8) | (px[2]) | (px[3]<<24)] = x;
+        }
+        
+        for(int y = 2; y < height; y++) {
+            png_bytep row = rowPointers[y];
+            for(int x = 0; x < width; x++) {
+                png_bytep px = &(row[x * 4]);
+                unsigned int c = (px[0]<<16) | (px[1]<<8) | (px[2]) | (px[3]<<24);
+                if(tileKey.find(c) != tileKey.end()){
+                    level[x][y-2] = tileKey[c];
+                }else if(entityKey.find(c) != entityKey.end()){
+                    if(entityKey[c] == 0){
+                        posX = x;
+                        posY = y;
+                    }else{
+                        entityList.push_back(Entity(x, y-2, entityKey[c]-1));
+                        level[x][y-2] = 0;
+                    }
+                }
+            }
+        }
+    }
+}
+
 void drawChar(SDL_Renderer* renderer, int xr, int yr, char c){
     SDL_Point points[FONT_CHAR_WIDTH*FONT_CHAR_HEIGHT];
     int i = 0;
@@ -273,7 +283,7 @@ void drawString(SDL_Renderer* renderer, int xr, int yr, const char* str){
 }
 
 unsigned char safeTile(int x, int y){
-    return (x<0||y<0||x>=LEVEL_WIDTH||y>=LEVEL_HEIGHT) ? TILE_EMPTY : level[y][x];
+    return (x<0||y<0||x>=LEVEL_WIDTH||y>=LEVEL_HEIGHT) ? TILE_EMPTY : level[x][y];
 }
 
 bool solid(int x, int y){
@@ -650,15 +660,15 @@ void init(){
     loadPngAsFont("font.png");
     
     
+    loadPngAsLevel("level.png");
+    
+    
     posX = (LEVEL_WIDTH) / 2;
     posY = (LEVEL_HEIGHT) / 2;
     yawLook = 0;
     
     oldTicks = SDL_GetTicks();
     newTicks = SDL_GetTicks();
-    
-    entityList.push_back(Entity(16, 16, ENTITY_TYPE_TEST1));
-    entityList.push_back(Entity(16, 15, ENTITY_TYPE_TEST2));
 }
 
 int main(int argc, const char * argv[]) {
