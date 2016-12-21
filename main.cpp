@@ -10,6 +10,7 @@
 #include <cmath>
 #include <ctime>
 #include <vector>
+#include <string>
 #include <SDL2/SDL.h>
 
 using namespace std;
@@ -18,14 +19,22 @@ using namespace std;
 #define DRAW_2D (DIM==2)
 #define DRAW_3D (DIM==3)
 
+#define ENABLE_MOUSE 0
+
 #define TILE_SIZE_2D 8
 
 #define PI 3.14159265358979323
 #define TAU (PI*2)
 
-#define SCREEN_WIDTH 640
-#define SCREEN_HEIGHT 480
-#define FOV (PI/3)
+
+#define VIEW_WIDTH 960
+#define VIEW_HEIGHT 480
+#define ASPECT_RATIO (VIEW_WIDTH/VIEW_HEIGHT)
+#define FOV (TAU/6)
+
+#define HUD_HEIGHT 120
+#define SCREEN_WIDTH VIEW_WIDTH
+#define SCREEN_HEIGHT (VIEW_HEIGHT+HUD_HEIGHT)
 
 #define FAR 100
 
@@ -53,15 +62,25 @@ using namespace std;
 #define TEXTURE_WIDTH 16
 #define TEXTURE_HEIGHT 16
 
+#define HUD_COLOR 0x202020
+#define CLEAR_COLOR 0xFFFFFF
+#define CEIL_COLOR 0x55C0FF
+#define FLOOR_COLOR 0x404040
+
 
 float posX, posY;
 float yawLook;
 
 bool inputs[6];
+int mouseXDif = 0;
+int mouseYDif = 0;
 
 Uint32 oldTicks = 0;
 Uint32 newTicks = 0;
 float frameTime = 0;
+int averageFps = 0;
+float sumFps = 0;
+int countFps = 0;
 
 #define ENTITY_TYPE_TEST1 0
 #define ENTITY_TYPE_TEST2 1
@@ -117,16 +136,34 @@ unsigned char level[LEVEL_WIDTH][LEVEL_HEIGHT] = {
 
 unsigned int tileTextures[TILE_COUNT-1][TEXTURE_WIDTH][TEXTURE_HEIGHT];
 unsigned int entityTextures[ENTITY_TYPE_COUNT][TEXTURE_WIDTH][TEXTURE_HEIGHT];
+#define FONT_ROW_COUNT 16
+#define FONT_COL_COUNT 16
+#define FONT_CHAR_COUNT (FONT_ROW_COUNT*FONT_COL_COUNT)
+#define FONT_CHAR_WIDTH 7
+#define FONT_CHAR_HEIGHT 12
+bool font[FONT_CHAR_COUNT][FONT_CHAR_WIDTH][FONT_CHAR_HEIGHT];
 
-void loadPngAsTexture(unsigned int texture[TEXTURE_WIDTH][TEXTURE_HEIGHT], const char* path){
+void setRenderDrawColorRGB(SDL_Renderer* renderer, unsigned int color){
+    SDL_SetRenderDrawColor(renderer, (color >> 16) & 0xFF, (color >> 8) & 0xFF, (color) & 0xFF, 0xFF);
+}
+
+void setRenderDrawColorRGB(SDL_Renderer* renderer, unsigned int color, unsigned int shift){
+    SDL_SetRenderDrawColor(renderer, ((color >> 16) & 0xFF) >> shift, ((color >> 8) & 0xFF) >> shift, ((color) & 0xFF) >> shift, 0xFF);
+}
+
+void setRenderDrawColorARGB(SDL_Renderer* renderer, unsigned int color){
+    SDL_SetRenderDrawColor(renderer, (color >> 16) & 0xFF, (color >> 8) & 0xFF, (color) & 0xFF, (color >> 24) & 0xFF);
+}
+
+png_bytep* loadPng(const char* path, int& width, int& height){
     FILE* file = fopen(path, "rb");
-    if(!file) return;
+    if(!file) return nullptr;
     
     png_structp png = png_create_read_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
-    if(!png) return;
+    if(!png) return nullptr;
     
     png_infop info = png_create_info_struct(png);
-    if(!info) return;
+    if(!info) return nullptr;
     
     if(setjmp(png_jmpbuf(png))) abort();
     
@@ -134,8 +171,8 @@ void loadPngAsTexture(unsigned int texture[TEXTURE_WIDTH][TEXTURE_HEIGHT], const
     
     png_read_info(png, info);
     
-    int width = png_get_image_width(png, info);
-    int height = png_get_image_height(png, info);
+    width = png_get_image_width(png, info);
+    height = png_get_image_height(png, info);
     png_byte colorType = png_get_color_type(png, info);
     png_byte bitDepth = png_get_bit_depth(png, info);
     
@@ -174,12 +211,64 @@ void loadPngAsTexture(unsigned int texture[TEXTURE_WIDTH][TEXTURE_HEIGHT], const
     
     fclose(file);
     
-    for(int y = 0; y < height; y++) {
-        png_bytep row = rowPointers[y];
-        for(int x = 0; x < width; x++) {
-            png_bytep px = &(row[x * 4]);
-            texture[x][y] = (px[0]<<16) | (px[1]<<8) | (px[2]) | (px[3]<<24);
+    return rowPointers;
+}
+
+void loadPngAsTexture(unsigned int texture[TEXTURE_WIDTH][TEXTURE_HEIGHT], const char* path){
+    
+    int width, height;
+    png_bytep* rowPointers = loadPng(path, width, height);
+    
+    if(rowPointers){
+        for(int y = 0; y < height; y++) {
+            png_bytep row = rowPointers[y];
+            for(int x = 0; x < width; x++) {
+                png_bytep px = &(row[x * 4]);
+                texture[x][y] = (px[0]<<16) | (px[1]<<8) | (px[2]) | (px[3]<<24);
+            }
         }
+    }
+}
+
+void loadPngAsFont(const char* path){
+    
+    int width, height;
+    png_bytep* rowPointers = loadPng(path, width, height);
+    
+    if(rowPointers){
+        for(int y = 0; y < height; y++) {
+            png_bytep row = rowPointers[y];
+            for(int x = 0; x < width; x++) {
+                png_bytep px = &(row[x * 4]);
+                int i = (x/FONT_CHAR_WIDTH)+((y/FONT_CHAR_HEIGHT)*FONT_ROW_COUNT);
+                int ix = x%FONT_CHAR_WIDTH;
+                int iy = y%FONT_CHAR_HEIGHT;
+                font[i][ix][iy] = (px[3]) == 0 ? false : true;
+            }
+        }
+    }
+}
+
+void drawChar(SDL_Renderer* renderer, int xr, int yr, char c){
+    SDL_Point points[FONT_CHAR_WIDTH*FONT_CHAR_HEIGHT];
+    int i = 0;
+    for(int x=0;x<FONT_CHAR_WIDTH;x++){
+        for(int y=0;y<FONT_CHAR_HEIGHT;y++){
+            if(font[c-32][x][y]){
+                points[i].x = xr+x;
+                points[i].y = yr+y;
+                i++;
+            }
+        }
+    }
+    SDL_RenderDrawPoints(renderer, points, i);
+}
+
+void drawString(SDL_Renderer* renderer, int xr, int yr, const char* str){
+    int i=0;
+    while(str[i] != '\0'){
+        drawChar(renderer, xr+(i*(FONT_CHAR_WIDTH+1)), yr, str[i]);
+        i++;
     }
 }
 
@@ -262,9 +351,9 @@ void bubbleSortByDist(vector<Entity>& list) {
 
 void draw(SDL_Renderer *renderer){
     
-    //speed modifiers
     float moveSpeed = frameTime * 5.0f; // coords per second
     float rotSpeed = frameTime * 3.0f; // radians per second
+    float mouseRotSpeed = frameTime * 6.0f;
     
     float otherMoveSpeed = frameTime * 2.0f;
     
@@ -274,6 +363,10 @@ void draw(SDL_Renderer *renderer){
     }
     if(inputs[INP_TURN_RIGHT]){
         yawLook += rotSpeed;
+    }
+    if(mouseXDif != 0){
+        yawLook += mouseXDif * mouseRotSpeed;
+        mouseXDif = 0;
     }
     
     float lookX = cos(yawLook);
@@ -323,7 +416,7 @@ void draw(SDL_Renderer *renderer){
                 rect.y = y*TILE_SIZE_2D;
                 if(solid(x, y)){
                     unsigned int color = tileTextures[safeTile(x, y)-1][0][0];
-                    SDL_SetRenderDrawColor(renderer, ((color >> 16) & 0xFF), ((color >> 8) & 0xFF), ((color) & 0xFF), 0xFF);
+                    setRenderDrawColorRGB(renderer, color);
                     SDL_RenderFillRect(renderer, &rect);
                 }
             }
@@ -368,7 +461,7 @@ void draw(SDL_Renderer *renderer){
             rect.y = e.y * TILE_SIZE_2D;
             rect.w = TILE_SIZE_2D;
             rect.h = TILE_SIZE_2D;
-            SDL_SetRenderDrawColor(renderer, ((color >> 16) & 0xFF), ((color >> 8) & 0xFF), ((color) & 0xFF), 0xFF);
+            setRenderDrawColorRGB(renderer, color);
             SDL_RenderDrawRect(renderer, &rect);
         }
         
@@ -384,7 +477,7 @@ void draw(SDL_Renderer *renderer){
                     }
                     if(DRAW_2D){
                         unsigned int color = entityTextures[e.type][0][0];
-                        SDL_SetRenderDrawColor(renderer, ((color >> 16) & 0xFF), ((color >> 8) & 0xFF), ((color) & 0xFF), 0xFF);
+                        setRenderDrawColorRGB(renderer, color);
                         SDL_RenderDrawLine(renderer, e.x * TILE_SIZE_2D, e.y * TILE_SIZE_2D, (e.x+aX*len) * TILE_SIZE_2D, (e.y+aY*len) * TILE_SIZE_2D);
                     }
                 }
@@ -396,8 +489,8 @@ void draw(SDL_Renderer *renderer){
     }
     bubbleSortByDist(entityList);
     
-    for(int x=0;x<SCREEN_WIDTH;x++){
-        float angle = (x-SCREEN_WIDTH/2)*(FOV/SCREEN_WIDTH);
+    for(int x=0;x<VIEW_WIDTH;x++){
+        float angle = (x-VIEW_WIDTH/2)*(FOV/VIEW_WIDTH);
         int hitX = 0;
         int hitY = 0;
         bool sideNS = false;
@@ -467,13 +560,13 @@ void draw(SDL_Renderer *renderer){
         if(dist >= 0){
             if(DRAW_2D){
                 unsigned int color = tileTextures[safeTile(hitX, hitY)-1][0][0];
-                SDL_SetRenderDrawColor(renderer, ((color >> 16) & 0xFF) >> sideNS, ((color >> 8) & 0xFF) >> sideNS, ((color) & 0xFF) >> sideNS, 0xFF);
+                setRenderDrawColorRGB(renderer, color, sideNS);
                 SDL_RenderDrawLine(renderer, posX*TILE_SIZE_2D, posY*TILE_SIZE_2D, hitX*TILE_SIZE_2D+TILE_SIZE_2D/2, hitY*TILE_SIZE_2D+TILE_SIZE_2D/2);
             }
             if(DRAW_3D){
-                int h = SCREEN_HEIGHT/dist;
-                int yStart = SCREEN_HEIGHT/2-h/2;
-                //int yEnd = SCREEN_HEIGHT/2+h/2;
+                int h = (VIEW_HEIGHT*ASPECT_RATIO)/dist;
+                int yStart = VIEW_HEIGHT/2-h/2;
+                //int yEnd = VIEW_HEIGHT/2+h/2;
                 //SDL_RenderDrawLine(renderer, x, yStart, x, yEnd);
                 
                 int texX = (int)(wallX * TEXTURE_WIDTH);
@@ -483,9 +576,11 @@ void draw(SDL_Renderer *renderer){
                 for(int texY = 0; texY < TEXTURE_HEIGHT; texY++){
                     int yS = yStart + (int)(texY*(h/(float)TEXTURE_HEIGHT));
                     int yE = yStart + (int)((texY+1)*(h/(float)TEXTURE_HEIGHT));
-                    unsigned int color = tileTextures[safeTile(hitX, hitY)-1][texX][texY];
-                    SDL_SetRenderDrawColor(renderer, ((color >> 16) & 0xFF) >> sideNS, ((color >> 8) & 0xFF) >> sideNS, ((color) & 0xFF) >> sideNS, 0xFF);
-                    SDL_RenderDrawLine(renderer, x, yS, x, yE);
+                    if(yE >= 0 && yS < VIEW_HEIGHT){
+                        unsigned int color = tileTextures[safeTile(hitX, hitY)-1][texX][texY];
+                        setRenderDrawColorRGB(renderer, color, sideNS);
+                        SDL_RenderDrawLine(renderer, x, yS, x, yE);
+                    }
                 }
             }
         }
@@ -505,17 +600,19 @@ void draw(SDL_Renderer *renderer){
                     }
                     float w = ac / eAngleSize;
                     if(abs(w) <= .5){
-                        float h = SCREEN_HEIGHT/e.dist;
-                        int yStart = SCREEN_HEIGHT/2-h/2;
+                        float h = (VIEW_HEIGHT*ASPECT_RATIO)/e.dist;
+                        int yStart = VIEW_HEIGHT/2-h/2;
                         
                         int texX = (int)((w+.5) * TEXTURE_WIDTH);
                         for(int texY = 0; texY < TEXTURE_HEIGHT; texY++){
                             int yS = yStart + (int)(texY*(h/(float)TEXTURE_HEIGHT));
                             int yE = yStart + (int)((texY+1)*(h/(float)TEXTURE_HEIGHT));
-                            unsigned int color = entityTextures[e.type][texX][texY];
-                            if(color >> 24){
-                                SDL_SetRenderDrawColor(renderer, ((color >> 16) & 0xFF), ((color >> 8) & 0xFF), ((color) & 0xFF), 0xFF);
-                                SDL_RenderDrawLine(renderer, x, yS, x, yE);
+                            if(yE >= 0 && yS < VIEW_HEIGHT){
+                                unsigned int color = entityTextures[e.type][texX][texY];
+                                if(color >> 24){
+                                    setRenderDrawColorRGB(renderer, color);
+                                    SDL_RenderDrawLine(renderer, x, yS, x, yE);
+                                }
                             }
                         }
                     }
@@ -525,6 +622,16 @@ void draw(SDL_Renderer *renderer){
         
     }
     
+    SDL_Rect rect;
+    rect.w = SCREEN_WIDTH;
+    rect.h = HUD_HEIGHT;
+    rect.x = 0;
+    rect.y = VIEW_HEIGHT;
+    setRenderDrawColorRGB(renderer, HUD_COLOR);
+    SDL_RenderFillRect(renderer, &rect);
+    
+    setRenderDrawColorRGB(renderer, 0xFFFFFF);
+    drawString(renderer, 2, VIEW_HEIGHT+2, ("FPS: "+std::to_string(averageFps)).c_str());
     
     
 }
@@ -539,6 +646,8 @@ void init(){
     
     loadPngAsTexture(entityTextures[ENTITY_TYPE_TEST1], "test.png");
     loadPngAsTexture(entityTextures[ENTITY_TYPE_TEST2], "test2.png");
+    
+    loadPngAsFont("font.png");
     
     
     posX = (LEVEL_WIDTH) / 2;
@@ -567,6 +676,10 @@ int main(int argc, const char * argv[]) {
     if(!window){
         fprintf(stderr, "Unable to create window and renderer:  %s\n", SDL_GetError());
         return 1;
+    }
+    
+    if(ENABLE_MOUSE){
+        SDL_SetRelativeMouseMode(SDL_TRUE);
     }
     
     init();
@@ -607,23 +720,31 @@ int main(int argc, const char * argv[]) {
                 }
                 break;
             }
+            case SDL_MOUSEMOTION:
+            {
+                if(ENABLE_MOUSE){
+                    mouseXDif += event.motion.xrel;
+                    mouseYDif += event.motion.yrel;
+                }
+            }
         }
         
-        SDL_SetRenderDrawColor(renderer, 0xFF, 0xFF, 0xFF, 0xFF);
+        setRenderDrawColorRGB(renderer, CLEAR_COLOR);
         SDL_RenderClear(renderer);
+        
         
         if(DRAW_3D){
             SDL_Rect rect;
             
-            rect.w = SCREEN_WIDTH;
-            rect.h = SCREEN_HEIGHT/2;
+            rect.w = VIEW_WIDTH;
+            rect.h = VIEW_HEIGHT/2;
             rect.x = 0;
             rect.y = 0;
-            SDL_SetRenderDrawColor(renderer, 0x55, 0xC0, 0xFF, 0xFF);
+            setRenderDrawColorRGB(renderer, CEIL_COLOR);
             SDL_RenderFillRect(renderer, &rect);
             
-            rect.y = SCREEN_HEIGHT/2;
-            SDL_SetRenderDrawColor(renderer, 0x40, 0x40, 0x40, 0xFF);
+            rect.y = VIEW_HEIGHT/2;
+            setRenderDrawColorRGB(renderer, FLOOR_COLOR);
             SDL_RenderFillRect(renderer, &rect);
         }
         
@@ -634,7 +755,13 @@ int main(int argc, const char * argv[]) {
         oldTicks = newTicks;
         newTicks = SDL_GetTicks();
         frameTime = (newTicks - oldTicks) / 1000.0f;
-        //printf("%.2f ", 1.0 / frameTime);
+        sumFps += 1.0f / frameTime;
+        countFps++;
+        if(countFps==20){
+            averageFps = (int)floor(sumFps / countFps);
+            countFps = 0;
+            sumFps = 0;
+        }
     }
     
     SDL_DestroyRenderer(renderer);
