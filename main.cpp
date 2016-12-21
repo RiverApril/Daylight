@@ -247,10 +247,10 @@ void loadPngAsLevel(const char* path){
                     level[x][y-2] = tileKey[c];
                 }else if(entityKey.find(c) != entityKey.end()){
                     if(entityKey[c] == 0){
-                        posX = x;
-                        posY = y;
+                        posX = x+.5;
+                        posY = y+.5;
                     }else{
-                        entityList.push_back(Entity(x, y-2, entityKey[c]-1));
+                        entityList.push_back(Entity(x+.5, y-2+.5, entityKey[c]-1));
                         level[x][y-2] = 0;
                     }
                 }
