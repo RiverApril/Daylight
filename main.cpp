@@ -20,6 +20,8 @@ using namespace std;
 #define DRAW_2D (DIM==2)
 #define DRAW_3D (DIM==3)
 
+#define DEBUG_DISPLAY 0
+
 #define ENABLE_MOUSE 0
 
 #define TILE_SIZE_2D 8
@@ -28,8 +30,8 @@ using namespace std;
 #define TAU (PI*2)
 
 
-#define VIEW_WIDTH 960
-#define VIEW_HEIGHT 480
+#define VIEW_WIDTH 1280
+#define VIEW_HEIGHT 760
 #define ASPECT_RATIO (VIEW_WIDTH/VIEW_HEIGHT)
 #define FOV (TAU/6)
 
@@ -60,7 +62,8 @@ using namespace std;
 #define TILE_METAL 2
 #define TILE_BLUE_WALL 3
 #define TILE_GREEN_BRICK 4
-#define TILE_COUNT 5
+#define TILE_FENCE 5
+#define TILE_COUNT 6
 
 
 #define TEXTURE_WIDTH 16
@@ -85,6 +88,7 @@ int averageFps = 0;
 float sumFps = 0;
 int countFps = 0;
 
+int totalPages = 0;
 int pageCount = 0;
 
 struct Entity{
@@ -98,10 +102,17 @@ struct Entity{
 };
 
 Entity* slender;
-float slenderWaitTimer = 5;
+float slenderWaitTimer = 30;
 float slenderStareTimer = 0;
 
 float staticIntensity = 0;
+
+#define FLASH_TIME_MAX 60
+
+float flashTimer = 5;
+
+#define STARE_TIME_MIN 1
+#define STARE_TIME_MAX 5
 
 #define ENTITY_TYPE_PAGE 0
 #define ENTITY_TYPE_SLENDER 1
@@ -127,7 +138,7 @@ void setRenderDrawColorRGB(SDL_Renderer* renderer, unsigned int color){
 }
 
 void setRenderDrawColorRGB(SDL_Renderer* renderer, unsigned int color, float multi){
-    SDL_SetRenderDrawColor(renderer, Uint8(((color >> 16) & 0xFF) * multi), Uint8(((color >> 8) & 0xFF) * multi), Uint8(((color) & 0xFF) * multi), 0xFF);
+    SDL_SetRenderDrawColor(renderer, Uint8(fminf(((color >> 16) & 0xFF) * multi, 255.0f)) & 0xFF, Uint8(fminf(((color >> 8) & 0xFF) * multi, 255.0f)) & 0xFF, Uint8(fminf(((color) & 0xFF) * multi, 255.0f)) & 0xFF, 0xFF);
 }
 
 void setRenderDrawColorARGB(SDL_Renderer* renderer, unsigned int color){
@@ -384,8 +395,9 @@ void bubbleSortByDist(vector<Entity*>& list) {
 
 void teleSlender(){
     do{
-        slender->x = ((rand()%(FOG_END*2*10))/10.0)-FOG_END+posX;
-        slender->y = ((rand()%(FOG_END*2*10))/10.0)-FOG_END+posY;
+        int edge = (FOG_END/totalPages)*(totalPages-pageCount);
+        slender->x = ((rand()%(edge*2*10))/10.0)-edge+posX;
+        slender->y = ((rand()%(edge*2*10))/10.0)-edge+posY;
     }while(solid(slender->x, slender->y));
 }
 
@@ -396,7 +408,6 @@ void draw(SDL_Renderer *renderer){
     float rotSpeed = frameTime * 2.0f; // radians per second
     float mouseRotSpeed = frameTime * 6.0f;
     
-    float otherMoveSpeed = frameTime * 2.0f;
     
     
     if(inputs[INP_TURN_LEFT]){
@@ -613,15 +624,20 @@ void draw(SDL_Renderer *renderer){
                     int yE = yStart + (int)((texY+1)*(h/(float)TEXTURE_HEIGHT));
                     if(yE >= 0 && yS < VIEW_HEIGHT){
                         unsigned int color = tileTextures[safeTile(hitX, hitY)-1][texX][texY];
-                        float multi = sideNS?.75f:1;
-                        if(dist > FOG_START){
-                            multi -= (dist-FOG_START) * FOG_MULT;
-                            if(multi < 0){
-                                multi = 0;
+                        if(color >> 24){
+                            float multi = sideNS?.75f:1;
+                            if(dist > FOG_START){
+                                multi -= (dist-FOG_START) * FOG_MULT;
+                                if(multi < 0){
+                                    multi = 0;
+                                }
                             }
+                            if(flashTimer <= 0){
+                                multi *= 4+flashTimer*3;
+                            }
+                            setRenderDrawColorRGB(renderer, color, multi);
+                            SDL_RenderDrawLine(renderer, x, yS, x, yE);
                         }
-                        setRenderDrawColorRGB(renderer, color, multi);
-                        SDL_RenderDrawLine(renderer, x, yS, x, yE);
                     }
                 }
             }
@@ -659,6 +675,9 @@ void draw(SDL_Renderer *renderer){
                                             multi = 0;
                                         }
                                     }
+                                    if(flashTimer <= 0){
+                                        multi *= 4+flashTimer*3;
+                                    }
                                     if(e->type == ENTITY_TYPE_SLENDER){
                                         seeSlender = true;
                                     }
@@ -672,6 +691,19 @@ void draw(SDL_Renderer *renderer){
             }
         }
         
+    }
+    
+    if(flashTimer < -1){
+        flashTimer = rand()%FLASH_TIME_MAX;
+    }
+    flashTimer -= frameTime;
+    
+    setRenderDrawColorRGB(renderer, 0x000040);
+    for(int i=0;i<20-1;i++){
+        int y = rand()%SCREEN_HEIGHT;
+        int x = rand()%SCREEN_WIDTH;
+        int h = (SCREEN_HEIGHT/4);
+        SDL_RenderDrawLine(renderer, x, y-h, x, y+h);
     }
     
     setRenderDrawColorRGB(renderer, 0xFFFFFF);
@@ -688,7 +720,7 @@ void draw(SDL_Renderer *renderer){
             slenderStareTimer -= frameTime;
         }else if(slenderWaitTimer == 0){
             slenderStareTimer = 0;
-            slenderWaitTimer = (32-(pageCount*4));
+            slenderWaitTimer = rand()%((totalPages+2)-pageCount)+((totalPages*2)-(pageCount*2));
         }
     }
     
@@ -704,7 +736,7 @@ void draw(SDL_Renderer *renderer){
     }else{
         if(slenderStareTimer == 0){
             slenderWaitTimer = 0;
-            slenderStareTimer = (rand()%10)+2;
+            slenderStareTimer = (rand()%(STARE_TIME_MAX-STARE_TIME_MIN))+STARE_TIME_MIN;
             teleSlender();
         }
         float len = sqrtf((slender->x-posX)*(slender->x-posX)+(slender->y-posY)*(slender->y-posY));
@@ -728,10 +760,12 @@ void draw(SDL_Renderer *renderer){
     
     
     setRenderDrawColorRGB(renderer, 0xFFFFFF);
-    drawString(renderer, 2, VIEW_HEIGHT-FONT_CHAR_HEIGHT-2, ("FPS: "+std::to_string(averageFps)).c_str());
-    drawString(renderer, 2, 2, ("PAGES: "+std::to_string(pageCount)).c_str());
-    drawString(renderer, 2, (2+FONT_CHAR_HEIGHT)+2, ("WAIT TIMER : "+std::to_string(slenderWaitTimer)).c_str());
-    drawString(renderer, 2, (2+FONT_CHAR_HEIGHT)*2+2, ("STARE TIMER: "+std::to_string(slenderStareTimer)).c_str());
+    if(DEBUG_DISPLAY){
+        drawString(renderer, 2, VIEW_HEIGHT-FONT_CHAR_HEIGHT-2, ("FPS: "+std::to_string(averageFps)).c_str());
+        drawString(renderer, 2, (2+FONT_CHAR_HEIGHT)+2, ("WAIT TIMER : "+std::to_string(slenderWaitTimer)).c_str());
+        drawString(renderer, 2, (2+FONT_CHAR_HEIGHT)*2+2, ("STARE TIMER: "+std::to_string(slenderStareTimer)).c_str());
+    }
+    drawString(renderer, 2, 2, (std::to_string(pageCount) + " / " + std::to_string(totalPages)).c_str());
     
     
     
@@ -743,6 +777,7 @@ void init(){
     loadPngAsTexture(tileTextures[TILE_METAL-1], "metal.png");
     loadPngAsTexture(tileTextures[TILE_BLUE_WALL-1], "blue wall.png");
     loadPngAsTexture(tileTextures[TILE_GREEN_BRICK-1], "green brick.png");
+    loadPngAsTexture(tileTextures[TILE_FENCE-1], "fence.png");
     
     
     loadPngAsTexture(entityTextures[ENTITY_TYPE_PAGE], "page.png");
@@ -761,6 +796,16 @@ void init(){
     
     oldTicks = SDL_GetTicks();
     newTicks = SDL_GetTicks();
+    
+    slenderWaitTimer = (rand()%20)+10;
+    flashTimer = rand()%FLASH_TIME_MAX;
+    
+    totalPages = 0;
+    for(Entity* e : entityList){
+        if(e->type == ENTITY_TYPE_PAGE){
+            totalPages++;
+        }
+    }
 }
 
 int main(int argc, const char * argv[]) {
