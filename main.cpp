@@ -107,7 +107,7 @@ float slenderStareTimer = 0;
 
 float staticIntensity = 0;
 
-#define FLASH_TIME_MAX 60
+#define FLASH_TIME_MAX 50
 
 float flashTimer = 5;
 
@@ -619,22 +619,24 @@ void draw(SDL_Renderer *renderer){
                 if((!sideNS && aX > 0) || (sideNS && aY < 0)){
                     texX = TEXTURE_WIDTH - texX - 1;
                 }
+                
+                float multi = sideNS?.75f:1;
+                if(dist > FOG_START){
+                    multi -= (dist-FOG_START) * FOG_MULT;
+                    if(multi < 0){
+                        multi = 0;
+                    }
+                }
+                if(flashTimer <= 0){
+                    multi *= 4+flashTimer*3;
+                }
+                
                 for(int texY = 0; texY < TEXTURE_HEIGHT; texY++){
                     int yS = yStart + (int)(texY*(h/(float)TEXTURE_HEIGHT));
                     int yE = yStart + (int)((texY+1)*(h/(float)TEXTURE_HEIGHT));
                     if(yE >= 0 && yS < VIEW_HEIGHT){
                         unsigned int color = tileTextures[safeTile(hitX, hitY)-1][texX][texY];
                         if(color >> 24){
-                            float multi = sideNS?.75f:1;
-                            if(dist > FOG_START){
-                                multi -= (dist-FOG_START) * FOG_MULT;
-                                if(multi < 0){
-                                    multi = 0;
-                                }
-                            }
-                            if(flashTimer <= 0){
-                                multi *= 4+flashTimer*3;
-                            }
                             setRenderDrawColorRGB(renderer, color, multi);
                             SDL_RenderDrawLine(renderer, x, yS, x, yE);
                         }
@@ -656,6 +658,18 @@ void draw(SDL_Renderer *renderer){
                     while(ac > PI){
                         ac -= 2*PI;
                     }
+                    
+                    float multi = 1;
+                    if(e->dist > FOG_START && e->type != ENTITY_TYPE_SLENDER){
+                        multi -= (e->dist-FOG_START) * FOG_MULT;
+                        if(multi < 0){
+                            multi = 0;
+                        }
+                    }
+                    if(flashTimer <= 0){
+                        multi *= 4+flashTimer*3;
+                    }
+                    
                     float w = ac / eAngleSize;
                     if(abs(w) <= .5){
                         float h = (VIEW_HEIGHT*ASPECT_RATIO)/e->dist;
@@ -668,16 +682,7 @@ void draw(SDL_Renderer *renderer){
                             if(yE >= 0 && yS < VIEW_HEIGHT){
                                 unsigned int color = entityTextures[e->type][texX][texY];
                                 if(color >> 24){
-                                    float multi = 1;
-                                    if(e->dist > FOG_START && e->type != ENTITY_TYPE_SLENDER){
-                                        multi -= (e->dist-FOG_START) * FOG_MULT;
-                                        if(multi < 0){
-                                            multi = 0;
-                                        }
-                                    }
-                                    if(flashTimer <= 0){
-                                        multi *= 4+flashTimer*3;
-                                    }
+                                    
                                     if(e->type == ENTITY_TYPE_SLENDER){
                                         seeSlender = true;
                                     }
@@ -698,12 +703,17 @@ void draw(SDL_Renderer *renderer){
     }
     flashTimer -= frameTime;
     
-    setRenderDrawColorRGB(renderer, 0x000040);
-    for(int i=0;i<20-1;i++){
-        int y = rand()%SCREEN_HEIGHT;
-        int x = rand()%SCREEN_WIDTH;
-        int h = (SCREEN_HEIGHT/4);
-        SDL_RenderDrawLine(renderer, x, y-h, x, y+h);
+    SDL_Rect rect;
+    rect.h = 60;
+    
+    for(int w=1;w<=4;w++){
+        rect.w = w;
+        setRenderDrawColorRGB(renderer, int(0x0000FF*(w/4.0)));
+        for(int i=0;i<10;i++){
+            rect.y = (rand()%(SCREEN_HEIGHT/rect.w))*rect.w;
+            rect.x = (rand()%(SCREEN_WIDTH/rect.w))*rect.w;
+            SDL_RenderFillRect(renderer, &rect);
+        }
     }
     
     setRenderDrawColorRGB(renderer, 0xFFFFFF);
