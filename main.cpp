@@ -57,7 +57,8 @@ using namespace std;
 #define TILE_METAL 2
 #define TILE_BLUE_WALL 3
 #define TILE_GREEN_BRICK 4
-#define TILE_COUNT 5
+#define TILE_MIRROR 5
+#define TILE_COUNT 6
 
 
 #define TEXTURE_WIDTH 16
@@ -538,6 +539,15 @@ void draw(SDL_Renderer *renderer){
         
         int tiles = 0;
         
+        float reflectDist = 0;
+        
+        
+        float fromX = posX;
+        float fromY = posY;
+        
+        int reflections = 0;
+        float firstDist = 0;
+        
         while(tiles < FAR){
             if(sideDistX < sideDistY){
                 sideDistX += deltaDistX;
@@ -549,29 +559,75 @@ void draw(SDL_Renderer *renderer){
                 sideNS = true;
             }
             if(sideNS){
-                dist = (mapY - posY + (1 - stepY) / 2) / aY;
+                dist = (mapY - fromY + (1 - stepY) / 2) / aY;
             }else{
-                dist = (mapX - posX + (1 - stepX) / 2) / aX;
+                dist = (mapX - fromX + (1 - stepX) / 2) / aX;
             }
             if(solid(mapX, mapY)){
+                
+                reflectDist += dist;
                 hitX = mapX;
                 hitY = mapY;
                 if(sideNS){
-                    wallX = posX + dist * aX;
+                    wallX = fromX + dist * aX;
                 }else{
-                    wallX = posY + dist * aY;
+                    wallX = fromY + dist * aY;
                 }
                 wallX -= floor((wallX));
-                break;
+                
+                if(firstDist == 0){
+                    firstDist = dist;
+                }
+                
+                if(level[mapX][mapY] == TILE_MIRROR){
+                    
+                    reflections++;
+                    
+                    if(DRAW_2D){
+                        unsigned int color = 0xFF0000;
+                        setRenderDrawColorRGB(renderer, color);
+                        SDL_RenderDrawLine(renderer, fromX*TILE_SIZE_2D, fromY*TILE_SIZE_2D, mapX*TILE_SIZE_2D+TILE_SIZE_2D/2, mapY*TILE_SIZE_2D+TILE_SIZE_2D/2);
+                    }
+                    
+                    fromX = mapX+(sideNS?0:(aX>0?0:1));
+                    fromY = mapY+(sideNS?(aY>0?0:1):0);
+                    
+                    if(sideNS){
+                        aY = -aY;
+                        fromX += wallX;
+                    }else{
+                        aX = -aX;
+                        fromY += wallX;
+                    }
+                    
+                    if (aX < 0) {
+                        stepX = -1;
+                        sideDistX = (fromX - mapX) * deltaDistX;
+                    } else {
+                        stepX = 1;
+                        sideDistX = (mapX + 1.0 - fromX) * deltaDistX;
+                    }
+                    if (aY < 0) {
+                        stepY = -1;
+                        sideDistY = (fromY - mapY) * deltaDistY;
+                    } else {
+                        stepY = 1;
+                        sideDistY = (mapY + 1.0 - fromY) * deltaDistY;
+                    }
+                }else{
+                    break;
+                }
             }
             tiles++;
         }
+        
+        dist = reflectDist;
         
         if(dist >= 0){
             if(DRAW_2D){
                 unsigned int color = tileTextures[safeTile(hitX, hitY)-1][0][0];
                 setRenderDrawColorRGB(renderer, color, sideNS);
-                SDL_RenderDrawLine(renderer, posX*TILE_SIZE_2D, posY*TILE_SIZE_2D, hitX*TILE_SIZE_2D+TILE_SIZE_2D/2, hitY*TILE_SIZE_2D+TILE_SIZE_2D/2);
+                SDL_RenderDrawLine(renderer, fromX*TILE_SIZE_2D, fromY*TILE_SIZE_2D, hitX*TILE_SIZE_2D+TILE_SIZE_2D/2, hitY*TILE_SIZE_2D+TILE_SIZE_2D/2);
             }
             if(DRAW_3D){
                 int h = (VIEW_HEIGHT*ASPECT_RATIO)/dist;
@@ -597,7 +653,7 @@ void draw(SDL_Renderer *renderer){
         
         if(DRAW_3D){
             for(Entity& e : entityList){
-                if(e.dist < dist || dist<0){
+                if(e.dist < firstDist || firstDist<0){
                     float eAngleSize = atan(1/e.dist);
                     float eAngle = atan2(e.y-posY, e.x-posX);
                     float yangle = atan2(sin(yawLook+angle), cos(yawLook+angle));
