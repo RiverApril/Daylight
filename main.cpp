@@ -29,15 +29,15 @@ using namespace std;
 
 
 #define VIEW_WIDTH 960
-#define VIEW_HEIGHT 480
+#define VIEW_HEIGHT 640
 #define ASPECT_RATIO (VIEW_WIDTH/VIEW_HEIGHT)
 #define FOV (TAU/6)
 
-#define HUD_HEIGHT 120
+#define HUD_HEIGHT 16
 #define SCREEN_WIDTH VIEW_WIDTH
 #define SCREEN_HEIGHT (VIEW_HEIGHT+HUD_HEIGHT)
 
-#define FAR 100
+#define FAR 1000
 
 
 #define INP_MOVE_LEFT 0
